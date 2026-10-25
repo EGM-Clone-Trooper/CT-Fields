@@ -1,0 +1,583 @@
+window.TrelloPowerUp.initialize({
+
+    // ==================================================
+    // BOARD BUTTONS
+    // ==================================================
+    'board-buttons': function (t) {
+        return [
+            {
+                text: 'CT Overview',
+                condition: 'edit',
+
+                callback: function (t) {
+                    return t.modal({
+                        title: 'CT Overview',
+                        url: t.signUrl(
+                            './dashboard.html',
+                            {
+                                v: String(Date.now())
+                            }
+                        ),
+                        fullscreen: true
+                    });
+                }
+            },
+
+            {
+                text: 'CT Fields',
+                condition: 'admin',
+
+                callback: function (t) {
+                    return t.modal({
+                        title: 'CT Fields – Einstellungen',
+                        url: t.signUrl('./settings.html'),
+                        height: 720,
+                        fullscreen: false
+                    });
+                }
+            }
+        ];
+    },
+
+
+    // ==================================================
+    // CT FIELDS IN DER GEÖFFNETEN KARTE
+    // ==================================================
+    'card-back-section': function (t) {
+        return {
+            title: 'CT Fields',
+
+            icon:
+                t.signUrl('./icon.svg'),
+
+            content: {
+                type: 'iframe',
+
+                url: t.signUrl(
+                    './fields.html',
+                    {
+                        v: String(Date.now())
+                    }
+                ),
+
+                height: 350
+            }
+        };
+    },
+
+
+    // ==================================================
+    // BADGES AUF DER KARTENVORDERSEITE
+    // ==================================================
+    'card-badges': function (t) {
+
+        return Promise.all([
+
+            t.get(
+                'board',
+                'shared',
+                'ctSchema',
+                null
+            ),
+
+            t.get(
+                'card',
+                'shared',
+                'characterData',
+                {}
+            ),
+
+            t.list(
+                'name'
+            )
+
+        ]).then(function (values) {
+
+            var schema =
+                ctDecodeSchema(
+                    values[0]
+                );
+
+
+            var storedValues =
+                getStoredValues(
+                    values[1] || {}
+                );
+
+
+            var listName =
+                values[2] &&
+                values[2].name
+                    ? values[2].name
+                    : '';
+
+
+            var badges =
+                [];
+
+
+            // ==================================================
+            // NORMALE FELDER
+            // ==================================================
+            (
+                schema.fields ||
+                []
+            ).forEach(
+                function (field) {
+
+                    var value =
+                        storedValues[
+                            field.id
+                        ];
+
+
+                    if (!value) {
+                        return;
+                    }
+
+
+                    var displayValue =
+                        ctGetDisplayValue(
+                            field,
+                            value
+                        );
+
+
+                    if (
+                        field.type ===
+                        'date'
+                    ) {
+
+                        displayValue =
+                            formatDate(
+                                displayValue
+                            );
+
+                    }
+
+
+                    badges.push({
+                        text:
+                            field.label +
+                            ': ' +
+                            displayValue,
+
+                        color:
+                            ctGetValueColor(
+                                field,
+                                value
+                            )
+                    });
+
+                }
+            );
+
+
+            // ==================================================
+            // PLAUSIBILITÄT
+            // ==================================================
+            if (
+                hasPlausibilityError(
+                    schema,
+                    storedValues,
+                    listName
+                )
+            ) {
+
+                badges.push({
+                    text:
+                        '⚠ Plausibilitätsfehler',
+
+                    color:
+                        'yellow'
+                });
+
+            }
+
+
+            return badges;
+
+        }).catch(function (error) {
+
+            console.error(
+                'CT Fields Badge Error:',
+                error
+            );
+
+
+            return [];
+
+        });
+    }
+
+});
+
+
+// ======================================================
+// KARTENDATEN
+// ======================================================
+
+function getStoredValues(data) {
+
+    if (
+        data &&
+        data.v === 2 &&
+        data.values
+    ) {
+
+        return data.values;
+
+    }
+
+
+    return data || {};
+}
+
+
+// ======================================================
+// FIELD FINDEN
+// ======================================================
+
+function getField(
+    schema,
+    id
+) {
+
+    if (
+        !schema ||
+        !Array.isArray(
+            schema.fields
+        )
+    ) {
+
+        return null;
+
+    }
+
+
+    return schema.fields.find(
+        function (field) {
+
+            return (
+                field.id === id
+            );
+
+        }
+    ) || null;
+}
+
+
+// ======================================================
+// LISTENNAME NORMALISIEREN
+// ======================================================
+
+function normalizeListName(name) {
+
+    return String(name || '')
+
+        .replace(
+            /↓/g,
+            ''
+        )
+
+        .replace(
+            /\s+/g,
+            ' '
+        )
+
+        .trim()
+
+        .toLowerCase();
+}
+
+
+// ======================================================
+// PLAUSIBILITÄT
+// ======================================================
+
+function hasPlausibilityError(
+    schema,
+    storedValues,
+    listName
+) {
+
+    var normalizedList =
+        normalizeListName(
+            listName
+        );
+
+
+    // ==================================================
+    // LISTE -> ERWARTETER RANG
+    // ==================================================
+
+    /*
+     * Plausibilitätsprüfung läuft NUR
+     * in diesen Spalten.
+     *
+     * Interessenten = Private First Class.
+     */
+
+    var listRules = {
+
+        'interessenten':
+            'private-first-class',
+
+        'lance corporal':
+            'lance-corporal',
+
+        'corporal':
+            'corporal',
+
+        'sergeant':
+            'sergeant',
+
+        'staff sergeant':
+            'staff-sergeant',
+
+        'sergeant major':
+            'sergeant-major',
+
+        'lieutenant':
+            'lieutenant',
+
+        'first lieutenant':
+            'first-lieutenant',
+
+        'captain':
+            'captain',
+
+        'major':
+            'major',
+
+        'commander':
+            'commander'
+
+    };
+
+
+    /*
+     * Außerhalb der relevanten Spalten:
+     * überhaupt kein Plausibilitätscheck.
+     */
+
+    if (
+        !listRules[
+            normalizedList
+        ]
+    ) {
+
+        return false;
+
+    }
+
+
+    // ==================================================
+    // RANG -> POSITION
+    // ==================================================
+
+    /*
+     * Private First Class steht bewusst
+     * NICHT hier.
+     *
+     * PFC hat keine Positionsebene.
+     */
+
+    var positionRules = {
+
+        'lance-corporal':
+            'mannschaft',
+
+        'corporal':
+            'mannschaft',
+
+        'sergeant':
+            'unteroffizierebene',
+
+        'staff-sergeant':
+            'unteroffizierebene',
+
+        'sergeant-major':
+            'unteroffizierebene',
+
+        'lieutenant':
+            'fuehrungsebene',
+
+        'first-lieutenant':
+            'fuehrungsebene',
+
+        'captain':
+            'hohe-fuehrungsebene',
+
+        'major':
+            'hohe-fuehrungsebene',
+
+        'commander':
+            'hohe-fuehrungsebene'
+
+    };
+
+
+    var rankField =
+        getField(
+            schema,
+            'rank'
+        );
+
+
+    var positionField =
+        getField(
+            schema,
+            'position'
+        );
+
+
+    if (!rankField) {
+
+        return false;
+
+    }
+
+
+    var rank =
+        ctNormalizeValue(
+            rankField,
+            storedValues.rank || ''
+        );
+
+
+    /*
+     * Fehlender Rang:
+     * unvollständig, aber kein
+     * Plausibilitätsfehler.
+     */
+
+    if (!rank) {
+
+        return false;
+
+    }
+
+
+    /*
+     * Nur unsere bekannten Ränge prüfen.
+     *
+     * High General / Custom-Ränge usw.
+     * werden ignoriert.
+     */
+
+    var isKnownRank =
+        rank ===
+        'private-first-class'
+
+        ||
+
+        !!positionRules[
+            rank
+        ];
+
+
+    if (!isKnownRank) {
+
+        return false;
+
+    }
+
+
+    // ==================================================
+    // 1. LISTE <-> RANG
+    // ==================================================
+
+    if (
+        rank !==
+        listRules[
+            normalizedList
+        ]
+    ) {
+
+        return true;
+
+    }
+
+
+    // ==================================================
+    // 2. RANG <-> POSITION
+    // ==================================================
+
+    /*
+     * Private First Class wird hier
+     * bewusst übersprungen.
+     */
+
+    if (
+        positionRules[
+            rank
+        ]
+
+        &&
+
+        positionField
+    ) {
+
+        var position =
+            ctNormalizeValue(
+                positionField,
+                storedValues.position || ''
+            );
+
+
+        if (
+            position !==
+            positionRules[
+                rank
+            ]
+        ) {
+
+            return true;
+
+        }
+
+    }
+
+
+    return false;
+}
+
+
+// ======================================================
+// DATUM
+// ======================================================
+
+function formatDate(dateString) {
+
+    if (!dateString) {
+
+        return '';
+
+    }
+
+
+    var parts =
+        String(
+            dateString
+        ).split('-');
+
+
+    if (
+        parts.length !==
+        3
+    ) {
+
+        return dateString;
+
+    }
+
+
+    return (
+        parts[2] +
+        '.' +
+        parts[1] +
+        '.' +
+        parts[0]
+    );
+}

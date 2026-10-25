@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>CT Trello Fields</title>
+</head>
+<body>
+
+<script src="https://p.trellocdn.com/power-up.min.js"></script>
+
+<script>
+(function () {
+    var version = Date.now();
+
+    var configScript = document.createElement('script');
+    configScript.src = './config.js?v=' + version;
+
+    configScript.onload = function () {
+        var powerupScript = document.createElement('script');
+        powerupScript.src = './powerup.js?v=' + version;
+        document.body.appendChild(powerupScript);
+    };
+
+    document.body.appendChild(configScript);
+})();
+</script>
+
+</body>
+</html>
